@@ -1,0 +1,42 @@
+name: DevOps CI Build Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        run: docker build -t devops-flask-app:${{ github.sha }} .
+
+      - name: Test Container Execution
+        run: |
+          docker run -d -p 5000:5000 --name test-app devops-flask-app:${{ github.sha }}
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:5000/ > response.html; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          grep -F 'DevOps Class Activity: Docker & GitHub Actions Pipeline Active!' response.html
+          test "$(docker inspect -f '{{.State.Running}}' test-app)" = true
+          docker ps --filter name=test-app
+
+      - name: Container Logs and Cleanup
+        if: always()
+        run: |
+          docker logs test-app || true
+          docker rm -f test-app || true
